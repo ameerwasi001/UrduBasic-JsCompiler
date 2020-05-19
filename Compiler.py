@@ -7,6 +7,58 @@ import os
 from math import isnan, sqrt
 from copy import deepcopy
 
+#RTResult
+class RTResult:
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.value = None
+        self.error = None
+        self.func_return_value = None
+        self.loop_should_continue = False
+        self.loop_should_break = False
+
+    def register(self, res):
+        if res.error: self.error = res.error
+        self.func_return_value = res.func_return_value
+        self.loop_should_continue = res.loop_should_continue
+        self.loop_should_break = res.loop_should_break
+        return res.value
+
+    def success(self, value):
+        self.reset()
+        self.value = value
+        return self
+
+    def success_return(self, value):
+        self.reset()
+        self.func_return_value = value
+        return self
+
+    def success_continue(self):
+        self.reset()
+        self.loop_should_continue = True
+        return self
+
+    def success_break(self):
+        self.reset()
+        self.loop_should_break = True
+        return self
+
+    def failure(self, error):
+        self.reset()
+        self.error = error
+        return self
+
+    def should_return(self):
+        return (
+            self.error or
+            self.func_return_value or
+            self.loop_should_continue or
+            self.loop_should_break
+        )
+
 #Context
 class Context(object):
     def __init__(self, display_name, parent=None, parent_entry_pos=None):
@@ -49,17 +101,6 @@ class SymbolTable:
         if index == None:
             self.symbols[name] = value
             self.certains[name] = certain
-        else:
-            key = self.get(name)
-            if isinstance(key, List):
-                if index.value < len(key.elements):
-                    if isinstance(value, List):
-                        key.elements[int(index.value)] = List(value.elements[:])
-                    else:
-                        key.elements[int(index.value)] = value
-                    return key, None
-                else:
-                    return None, None
         return self.symbols.get(name, None), None
 
     def const_set(self, name, value, certain, index=None):
@@ -368,10 +409,10 @@ def indentator(string):
 context = Context('<main>')
 global_symbol_table = SymbolTable()
 context.symbol_table = global_symbol_table
-null = nullObject()
-galat = Boolean(0)
-sahi = Boolean(1)
-inf = Infinity()
+null = "nullObject"
+galat = "Boolean"
+sahi = "Boolean"
+inf = "Infinity"
 global_symbol_table.const_set("khali", null, True)
 global_symbol_table.const_set("galat", galat, True)
 global_symbol_table.const_set("sahi", sahi, True)
