@@ -16,7 +16,7 @@ const {sahi, galat, khali, forcond,
   RTError, Boolean, BasicInfinity,
   BasicString, BasicNumber, BasicArray,
   NullObject
-} = require("./values.js")
+} = require("./values.js");
 
 /////////Generated Code//////////////////
 
