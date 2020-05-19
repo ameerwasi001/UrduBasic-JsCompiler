@@ -1,0 +1,62 @@
+statements : NEWLINE* statement (NEWLINE+ statement)* NEWLINE+
+
+statement  : KEYWORD:WAPIS expr?
+           : KEYWORD:SHURU
+           : KEYWORD:TODHO
+	   : KEYWORD:KAHO expr
+           : expr
+
+expr : (KEYWORD:VAR|KEYWORD:ABSE) IDENTIFIER((LSQUARE expr RSQUARE)*)? EQ expr
+     : comp-expr ((KEYWORD:OR|KEYWORD:YA) comp-expr)*
+      (LPAREN (expr (COMMA expr)*)? RPAREN)?
+
+comp-expr : KEYWORD:NAHI comp-expr
+          : arith-expr ((EE|LT|GT|LTE|GTE) arith-expr)*
+
+arith-expr : term ((PLUS|MINUS) term)*
+
+term : factor ((MUL|DIV) factor)*
+     : power
+
+factor : (PLUS|MINUS) factor
+       : power
+
+power  : call ((POW|MOD) factor)*
+
+call   : atom (LPAREN (expr (COMMA expr)*)? RPAREN)?
+
+atom   : INT|FLOAT|STRING|IDENTIFIER
+       : LPAREN expr RPAREN
+       : list-expr
+       : if-expr
+       : for-expr
+       : while-expr
+       : func-def
+       : try-expr
+
+try-expr  : KEYWORD:KOSHISH (expr| NEWLINE statements) KEYWORD:MUSHKIL (expr | NEWLINE statements) KEYWORD:KHATAM
+
+list-expr : LSQUARE (expr (COMMA expr)*)? RSQUARE
+
+if-expr : KEYWORD:AGAR expr KEYWORD:PHIR expr
+         (statement if-expr-b| if-expr-c?)
+        | (NEWLINE statements KEYWORD:KHATAM|if-expr-b|if-expr-c)
+
+if-expr-b : KEYWORD:NAHIAGAR expr KEYWORD:PHIR expr
+            (statement if-expr-b| if-expr-c?)
+          | (NEWLINE statements KEYWORD:KHATAM|if-expr-b|if-expr-c)
+
+if expr-c : KEYWORD:WARNA
+            statement
+          | (NEWLINE statements KEYWORD:KHATAM)
+
+for-expr : KEYWORD:FOR IDENTIFIER EQ expr KEYWORD:PHIR expr KEYWORD:SE expr KEYWORD:TAK
+           (KEYWORD:BADHAO expr)? KEYWORD:PHIR statement
+         | (NEWLINE statements KEYWORD:KHATAM)
+
+while-expr : KEYWORD:JABKE expr KEYWORD:PHIR statement
+
+func-def  : KEYWORD:KAM IDENTIFIER?
+            LPAREN (IDENTIFIER (COMMA IDENTIFIER)*)? RPAREN
+            ARROW expr
+          | (NEWLINE statements KEYWORD:KHATAM)
