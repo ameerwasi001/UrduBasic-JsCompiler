@@ -1,5 +1,5 @@
 # UrduBasic-JsCompiler
-This is a transpiler for the UrduBasic programming. It transpiles UrduBasic to JavaScript.
+This is a transpiler for the UrduBasic programming. It transpiles [UrduBasic](https://github.com/ameerwasi001/UrduBasic/blob/master/README.md) to JavaScript.
 
 # Compiling a file
 You can compile a file by saying `shell.py inputfilename.uBasic outputname.js` in your terminal.
