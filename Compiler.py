@@ -59,6 +59,16 @@ class RTResult:
             self.loop_should_break
         )
 
+# Info
+class Info:
+    def __init__(self, certain, evaluation):
+        super(Info, self).__init__()
+        self.certain = certain
+        self.evaluation = evaluation
+
+    def __repr__(self):
+        return f"Info  certain: {self.certain}, eval: {self.evaluation}"
+
 #Context
 class Context(object):
     def __init__(self, display_name, parent=None, parent_entry_pos=None):
@@ -125,42 +135,42 @@ class SymbolTable:
 
 #Interpreter
 class Compiler:
-    def visit(self, node, context, certain):
+    def visit(self, node, context, info):
         method_name = f'visit_{type(node).__name__}'
         method = getattr(self, method_name, self.no_visit_method)
-        return method(node, context, certain)
+        return method(node, context, info)
 
-    def no_visit_method(self, node, context, certain):
+    def no_visit_method(self, node, context, info):
         raise Exception (f"visit_{type(node).__name__} method is undefined")
 
-    def visit_NumberNode(self, node, context, certain):
+    def visit_NumberNode(self, node, context, info):
         return RTResult().success(f"new BasicNumber({node.tok.value})")
 
-    def visit_StringNode(self, node, context, certain):
+    def visit_StringNode(self, node, context, info):
         return RTResult().success(f"new BasicString(\"{node.tok.value}\")")
 
-    def visit_ListNode(self, node, context, certain):
+    def visit_ListNode(self, node, context, info):
         res = RTResult()
         elements = []
         for element_node in node.element_nodes:
-            elements.append(res.register(self.visit(element_node, context, certain)))
+            elements.append(res.register(self.visit(element_node, context, info)))
             if res.should_return(): return res
         return res.success(f"new BasicArray([{', '.join(elements)}])")
 
-    def visit_StatementsNode(self, node, context, certain):
+    def visit_StatementsNode(self, node, context, info):
         res = RTResult()
         elements = []
         for element_node in node.statement_nodes:
-            elements.append(res.register(self.visit(element_node, context, certain)))
+            elements.append(res.register(self.visit(element_node, context, info)))
             if res.should_return(): return res
         elements[-1] += ";"
         return res.success(';\n'.join(elements))
 
-    def visit_VarAccessNode(self, node, context, certain):
+    def visit_VarAccessNode(self, node, context, info):
         res = RTResult()
         var_name = node.var_name_tok.value
         value = context.symbol_table.get(var_name)
-        if not value:
+        if (not value) and (info.evaluation):
             return res.failure(RTError(
                 node.pos_start, node.pos_end,
                 context,
@@ -168,18 +178,18 @@ class Compiler:
             ))
         return res.success(f"{node.var_name_tok.value}.copy()")
 
-    def visit_VarAssignNode(self, node, context, certain):
+    def visit_VarAssignNode(self, node, context, info):
         res = RTResult()
         var_name = node.var_name_tok.value
         var_type = node.var_type.value
         index = node.index_node
         error = None
         if index:
-            index = res.register(self.visit(index, context, certain))
+            index = res.register(self.visit(index, context, info))
             if res.should_return(): return res
-        value = res.register(self.visit(node.value_node, context, certain))
+        value = res.register(self.visit(node.value_node, context, info))
         if res.should_return(): return res
-        certainity = certain
+        certainity = info.certain
         if var_name in context.symbol_table.symbols:
             certainity = context.symbol_table.get_certainity(var_name)
             if certainity:
@@ -209,11 +219,11 @@ class Compiler:
         result = f"{('const ' if var_type == 'ABSE' else 'var ') if declaration else ''}{var_name}{f'.value[{index}.value]' if index else ''} = {value}"
         return res.success(result)
 
-    def visit_BinOpNode(self, node, context, certain):
+    def visit_BinOpNode(self, node, context, info):
         res = RTResult()
-        left = res.register(self.visit(node.left_node, context, certain))
+        left = res.register(self.visit(node.left_node, context, info))
         if res.should_return(): return res
-        right = res.register(self.visit(node.right_node, context, certain))
+        right = res.register(self.visit(node.right_node, context, info))
         if res.should_return(): return res
         if node.op_tok.type == TT_PLUS:
             result = f"({left}.added_to({right}))"
@@ -245,14 +255,14 @@ class Compiler:
             result = f"({left}.ored_by({right}))"
         return res.success(result)
 
-    def visit_IfNode(self, node, context, certain):
+    def visit_IfNode(self, node, context, info):
         res = RTResult()
         resultstatement = ""
         times = 0
         for condition, expr, should_return_null in node.cases:
-            condition_value = res.register(self.visit(condition, context, certain))
+            condition_value = res.register(self.visit(condition, context, info))
             if res.should_return(): return res
-            expr_value = res.register(self.visit(expr, context, False))
+            expr_value = res.register(self.visit(expr, context, Info(False, info.evaluation)))
             if res.should_return(): return res
             if should_return_null:
                 resultstatement += ((f"if (({condition_value}).is_true()) ") if times == 0 else (f"else if (({condition_value}).is_true()) ")) + "{" + f"{indentator(expr_value)}" "\n} "
@@ -261,7 +271,7 @@ class Compiler:
             times += 1
         if node.else_case:
             else_case, should_return_null = node.else_case
-            else_value = res.register(self.visit(else_case, context, False))
+            else_value = res.register(self.visit(else_case, context, Info(False, info.evaluation)))
             if res.should_return(): return res
             else_value = indentator(else_value) if should_return_null else else_value
             if should_return_null:
@@ -272,27 +282,27 @@ class Compiler:
             resultstatement += "new NullObject()"
         return res.success(resultstatement)
 
-    def visit_ForNode(self, node, context, certain):
+    def visit_ForNode(self, node, context, info):
         res = RTResult()
         elements = []
-        start_value = res.register(self.visit(node.start_value_node, context, certain))
+        start_value = res.register(self.visit(node.start_value_node, context, info))
         if res.should_return(): return res
         variablenode = VarAssignNode(node.var_name_tok, Token(TT_KEYWORD, "RAKHO"), node.start_value_node, None)
-        initialization = res.register(self.visit(variablenode, context, certain))
+        initialization = res.register(self.visit(variablenode, context, info))
         if res.should_return(): return res
-        end_value = res.register(self.visit(node.end_value_node, context, certain))
+        end_value = res.register(self.visit(node.end_value_node, context, info))
         if res.should_return(): return res
         if node.step_value_node:
             rhs = BinOpNode(VarAccessNode(node.var_name_tok), Token(TT_PLUS), node.step_value_node)
             variablenode = VarAssignNode(node.var_name_tok, Token(TT_KEYWORD, "RAKHO"), rhs, None)
-            increment = res.register(self.visit(variablenode, context, certain))
+            increment = res.register(self.visit(variablenode, context, info))
             if res.should_return(): return res
         else:
             rhs = BinOpNode(VarAccessNode(node.var_name_tok), Token(TT_PLUS), NumberNode(Token(TT_INT, 1, node.pos_start, node.pos_end)))
             variablenode = VarAssignNode(node.var_name_tok, Token(TT_KEYWORD, "RAKHO"), rhs, None)
-            increment = res.register(self.visit(variablenode, context, certain))
+            increment = res.register(self.visit(variablenode, context, info))
             if res.should_return(): return res
-        body = res.register(self.visit(node.body_node, context, False))
+        body = res.register(self.visit(node.body_node, context, Info(False, info.evaluation)))
         if res.should_return(): return res
         if node.should_return_null:
             resultstatement = f"for ({initialization}; (forcond({start_value}, {end_value}, ({node.var_name_tok.value}).copy())).is_true(); {increment})" + "{" + indentator(body) + "\n}"
@@ -302,12 +312,12 @@ class Compiler:
             resultstatement = "function () " + "{\n" + indentator(assignments + loop + f"\nreturn new BasicArray(elements09017);\n") + "\n}" + "()"
         return res.success(resultstatement)
 
-    def visit_WhileNode(self, node, context, certain):
+    def visit_WhileNode(self, node, context, info):
         res = RTResult()
         elements = []
-        condition = res.register(self.visit(node.condition_node, context, certain))
+        condition = res.register(self.visit(node.condition_node, context, info))
         if res.should_return(): return res
-        value = res.register(self.visit(node.body_node, context, False))
+        value = res.register(self.visit(node.body_node, context, Info(False, info.evaluation)))
         if res.should_return(): return res
         if node.should_return_null:
             resultstatement = f"while (({condition}).is_true()) " + "{" + f"{indentator(value)}" + "\n}"
@@ -316,11 +326,10 @@ class Compiler:
             loop = f"while (({condition}).is_true()) " + "{\n" + indentator(f"{f'elements09017.push({value})'}") + "\n};"
             resultstatement = "function () " + "{" + indentator(assignments + loop + f"\nreturn new BasicArray(elements09017);\n") +"\n}"+"()"
         return res.success(resultstatement)
-        return res.success(null if node.should_return_null else List(elements).set_context(context).set_pos(node.pos_start, node.pos_end))
 
-    def visit_UnaryOpNode(self, node, context, certain):
+    def visit_UnaryOpNode(self, node, context, info):
         res = RTResult()
-        number = res.register(self.visit(node.node, context, certain))
+        number = res.register(self.visit(node.node, context, info))
         if res.should_return(): return res
         if node.op_tok.type == TT_MINUS:
             number = f"({number}.multed_by(new BasicNumber(-1)))"
@@ -328,29 +337,27 @@ class Compiler:
             number = f"{number}.notted()"
         return res.success(number)
 
-    def visit_TryNode(self, node, context, certain):
+    def visit_TryNode(self, node, context, info):
         res = RTResult()
-        try_block = res.register(self.visit(node.try_block, context, False))
+        try_block = res.register(self.visit(node.try_block, context, Info(False, info.evaluation)))
         if res.should_return(): return res
-        except_block = res.register(self.visit(node.except_block, context, False))
+        except_block = res.register(self.visit(node.except_block, context, Info(False, info.evaluation)))
         if res.should_return(): return res
         result = f"try" + "{ " + indentator(f"{'return ' if node.may_return else ''}{try_block}") + "}\n catch {" + indentator(f"{'return ' if node.may_return else ''}{except_block}") + "}"
         if node.may_return:
             result = "function () " + "{" + indentator(result) + "\n}()"
         return res.success(result)
 
-    def visit_FuncDefNode(self, node, context, certain):
+    def visit_FuncDefNode(self, node, context, info):
         res = RTResult()
         func_name = node.var_name_tok.value if node.var_name_tok else None
         new_context = Context(str(id(node)), context.copy(), node.pos_start)
         new_context.symbol_table = SymbolTable(new_context.parent.symbol_table)
         arg_names = [arg_name.value for arg_name in node.arg_name_toks]
-        for arg in arg_names:
-            new_context.symbol_table.set(arg, "new BasicNumber(3)", certain)
         arg_names_string = f"{', '.join(arg_names)}"
         if func_name:
-            context.symbol_table.set(func_name, func_name, certain)
-        func_body = res.register(self.visit(node.body_node, new_context, certain))
+            context.symbol_table.set(func_name, func_name, info.certain)
+        func_body = res.register(self.visit(node.body_node, new_context, Info(info.certain, False)))
         if res.should_return(): return res
         if node.should_auto_return:
             function = f"function {func_name if func_name else ''}({arg_names_string}) " + "{" + indentator("return " + func_body) + "\n}"
@@ -358,40 +365,40 @@ class Compiler:
             function = f"function {func_name if func_name else ''}({arg_names_string}) " + "{" + indentator(func_body) + "\n}"
         return res.success(function)
 
-    def visit_CallNode(self, node, context, certain):
+    def visit_CallNode(self, node, context, info):
         res = RTResult()
         args = []
-        value_to_call = res.register(self.visit(node.node_to_call, context, certain))
+        value_to_call = res.register(self.visit(node.node_to_call, context, info))
         if res.should_return(): return res
         if isinstance(value_to_call, VarAccessNode):
-            value_to_call = res.register(self.visit(node.node_to_call, context, certain))
+            value_to_call = res.register(self.visit(node.node_to_call, context, info))
             if res.should_return(): return res
         for arg_node in node.arg_nodes:
-            args.append(res.register(self.visit(arg_node, context, certain)))
+            args.append(res.register(self.visit(arg_node, context, info)))
             if res.should_return(): return res
         arg_string = f"{', '.join(args)}"
         funcall = f"({value_to_call})({arg_string})"
         return res.success(funcall)
 
-    def visit_ReturnNode(self, node, context, certain):
+    def visit_ReturnNode(self, node, context, info):
         res = RTResult()
         if node.node_to_return:
-            value = res.register(self.visit(node.node_to_return, context, certain))
+            value = res.register(self.visit(node.node_to_return, context, info))
             if res.should_return(): return res
         else:
             value = "new NullObject()"
 
         return res.success("return " + value)
 
-    def visit_ContinueNode(self, node, context, certain):
+    def visit_ContinueNode(self, node, context, info):
         return RTResult().success("continue")
 
-    def visit_BreakNode(self, node, context, certain):
+    def visit_BreakNode(self, node, context, info):
         return RTResult().success("break")
 
-    def visit_AssertNode(self, node, context, certain):
+    def visit_AssertNode(self, node, context, info):
         res = RTResult()
-        assertion = res.register(self.visit(node.node_to_assert, context, certain))
+        assertion = res.register(self.visit(node.node_to_assert, context, info))
         if res.should_return(): return res
         result = f"if (({assertion}.notted()).is_true()) " + "{" + indentator("throw new RTError('Jo ap ne kaha wo sahi nahi hai')") + "\n}"
         return res.success(result)
@@ -441,7 +448,6 @@ global_symbol_table.set("STR_CHALAO", 'exec', True)
 global_symbol_table.set("STR_WAPIS_CHALAO", 'eval', True)
 global_symbol_table.set("MATH_SQRT", "math_sqrt", True)
 
-
 def run(fn, text):
     lexer = Lexer(fn, text)
     tokens, error = lexer.make_tokens()
@@ -450,5 +456,5 @@ def run(fn, text):
     ast = parser.parse()
     if ast.error: return None, ast.error
     compiler = Compiler()
-    result = compiler.visit(ast.node, context, True)
+    result = compiler.visit(ast.node, context, Info(True, True))
     return result.value, result.error
