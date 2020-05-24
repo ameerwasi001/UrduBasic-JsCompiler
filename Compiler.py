@@ -59,6 +59,35 @@ class RTResult:
             self.loop_should_break
         )
 
+# Values
+class Function:
+    def __init__(self, name, body, arg_names, auto_return, scope, info, built_in=False):
+        self.name = name
+        self.body = body
+        self.arg_names = arg_names
+        self.auto_return = auto_return
+        self.scope = scope
+        self.info = info
+        self.built_in = built_in
+        self.checked = True if self.built_in else False
+        self.set_string()
+
+    def set_string(self):
+        compiler = Compiler()
+        res = RTResult()
+        self.arg_names_string = f"{', '.join(self.arg_names)}"
+        self.string_body = "return BasicNumber(0)" if self.built_in else res.register(compiler.visit(self.body, context, Info(self.info.certain, False)))
+        if res.error: return res
+
+    def __str__(self):
+        print()
+        if self.auto_return:
+            function = f"function {self.name if self.name else ''}({self.arg_names_string}) " + "{" + indentator("return " + self.string_body) + "\n}"
+        else:
+            function = f"function {self.name if self.name else ''}({self.arg_names_string}) " + "{" + indentator(self.string_body) + "\n}"
+        return function
+
+
 # Info
 class Info:
     def __init__(self, certain, evaluation):
@@ -351,19 +380,11 @@ class Compiler:
     def visit_FuncDefNode(self, node, context, info):
         res = RTResult()
         func_name = node.var_name_tok.value if node.var_name_tok else None
-        new_context = Context(str(id(node)), context.copy(), node.pos_start)
-        new_context.symbol_table = SymbolTable(new_context.parent.symbol_table)
         arg_names = [arg_name.value for arg_name in node.arg_name_toks]
-        arg_names_string = f"{', '.join(arg_names)}"
+        function = Function(func_name, node.body_node, arg_names, node.should_auto_return, context.copy(), info)
         if func_name:
-            context.symbol_table.set(func_name, func_name, info.certain)
-        func_body = res.register(self.visit(node.body_node, new_context, Info(info.certain, False)))
-        if res.should_return(): return res
-        if node.should_auto_return:
-            function = f"function {func_name if func_name else ''}({arg_names_string}) " + "{" + indentator("return " + func_body) + "\n}"
-        else:
-            function = f"function {func_name if func_name else ''}({arg_names_string}) " + "{" + indentator(func_body) + "\n}"
-        return res.success(function)
+            context.symbol_table.set(func_name, function, info.certain)
+        return res.success(str(function))
 
     def visit_CallNode(self, node, context, info):
         res = RTResult()
@@ -376,6 +397,29 @@ class Compiler:
         for arg_node in node.arg_nodes:
             args.append(res.register(self.visit(arg_node, context, info)))
             if res.should_return(): return res
+        if (isinstance(node.node_to_call, VarAccessNode)) and (info.evaluation):
+            value_to_find = value_to_call[:-7]
+            value_to_check = context.symbol_table.get(value_to_find)
+            if isinstance(value_to_check, Function):
+                if len(value_to_check.arg_names) != len(args):
+                    return res.failure(RTError(
+                        node.node_to_call.pos_start, node.node_to_call.pos_end,
+                        context,
+                        f"{value_to_find} mein ap ne sare argument nahi diye"
+                    ))
+                if (not value_to_check.checked):
+                    value_to_check.checked = True
+                    new_context = Context(str(id(node)), value_to_check.scope.copy(), node.pos_start)
+                    new_context.symbol_table = SymbolTable(new_context.parent.symbol_table)
+                    for i in range(len(value_to_check.arg_names)):
+                        variable = value_to_check.arg_names[i]
+                        value = args[i]
+                        new_context.symbol_table.set(variable, value, True)
+                    res.register(self.visit(value_to_check.body, new_context, info))
+                    if res.error:
+                        value_to_check.checked = False
+                        return res
+
         arg_string = f"{', '.join(args)}"
         funcall = f"({value_to_call})({arg_string})"
         return res.success(funcall)
@@ -424,29 +468,27 @@ global_symbol_table.const_set("khali", null, True)
 global_symbol_table.const_set("galat", galat, True)
 global_symbol_table.const_set("sahi", sahi, True)
 global_symbol_table.const_set("lamehdood", inf, True)
-global_symbol_table.set("LIKHO", "print", True)
-global_symbol_table.set("LINE_LIKHO", "println", True)
-global_symbol_table.set("LIKHO_WAPIS", "print_ret", True)
-global_symbol_table.set("PUCHO", "input", True)
-global_symbol_table.set("MANGO_INT", "input_int", True)
-global_symbol_table.set("SAAF", "clear", True)
-global_symbol_table.set("KYA_NUM", "is_number", True)
-global_symbol_table.set("KYA_STR", "is_string", True)
-global_symbol_table.set("KYA_LIST", "is_list", True)
-global_symbol_table.set("KYA_KAM", "is_function", True)
-global_symbol_table.set("DALO", "append", True)
-global_symbol_table.set("NIKAL", "pop", True)
-global_symbol_table.set("MILAO", "extend", True)
-global_symbol_table.set("LIST", "list", True)
-global_symbol_table.set("STR", "str", True)
-global_symbol_table.set("NUM", "num", True)
-global_symbol_table.set("ALAG", "split", True)
-global_symbol_table.set("JODH", "join", True)
-global_symbol_table.set("LAMBAI", "len", True)
-global_symbol_table.set("CHALAO", "run", True)
-global_symbol_table.set("STR_CHALAO", 'exec', True)
-global_symbol_table.set("STR_WAPIS_CHALAO", 'eval', True)
-global_symbol_table.set("MATH_SQRT", "math_sqrt", True)
+global_symbol_table.set("LIKHO", Function("LIKHO", None, ["line"], False, context.copy(), Info(True, True), built_in=True), True)
+global_symbol_table.set("LINE_LIKHO", Function("LINE_LIKHO", None, ["line"], False, context.copy(), Info(True, True), built_in=True), True)
+global_symbol_table.set("LIKHO_WAPIS", Function("LIKHO", None, ["line"], False, context.copy(), Info(True, True), built_in=True), True)
+global_symbol_table.set("PUCHO", Function("MANGO_INT", None, ["question"], False, context.copy(), Info(True, True), built_in=True), True)
+global_symbol_table.set("MANGO_INT", Function("PUCHO", None, ["question"], False, context.copy(), Info(True, True), built_in=True), True)
+global_symbol_table.set("SAAF", Function("SAAF", None, [], False, context.copy(), Info(True, True), built_in=True), True)
+global_symbol_table.set("KYA_NUM", Function("KYA_NUM", None, ["thing"], False, context.copy(), Info(True, True), built_in=True), True)
+global_symbol_table.set("KYA_STR", Function("KYA_STR", None, ["thing"], False, context.copy(), Info(True, True), built_in=True), True)
+global_symbol_table.set("KYA_LIST", Function("KYA_LIST", None, ["thing"], False, context.copy(), Info(True, True), built_in=True), True)
+global_symbol_table.set("KYA_KAM", Function("KYA_KAM", None, ["thing"], False, context.copy(), Info(True, True), built_in=True), True)
+global_symbol_table.set("DALO", Function("DALO", None, ["list", "thing"], False, context.copy(), Info(True, True), built_in=True), True)
+global_symbol_table.set("NIKAL", Function("NIKAL", None, ["list", "index"], False, context.copy(), Info(True, True), built_in=True), True)
+global_symbol_table.set("MILAO", Function("MILAO", None, ["list1", "list1"], False, context.copy(), Info(True, True), built_in=True), True)
+global_symbol_table.set("LIST", Function("LIST", None, ["thing"], False, context.copy(), Info(True, True), built_in=True), True)
+global_symbol_table.set("STR", Function("STR", None, ["thing"], False, context.copy(), Info(True, True), built_in=True), True)
+global_symbol_table.set("NUM", Function("NUM", None, ["thing"], False, context.copy(), Info(True, True), built_in=True), True)
+global_symbol_table.set("ALAG", Function("ALAG", None, ["a", "b"], False, context.copy(), Info(True, True), built_in=True), True)
+global_symbol_table.set("JODH", Function("JODH", None, ["sep", "list"], False, context.copy(), Info(True, True), built_in=True), True)
+global_symbol_table.set("LAMBAI",  Function("LAMBAI", None, ["list"], False, context.copy(), Info(True, True), built_in=True), True)
+global_symbol_table.set("CHALAO", Function("CHALAO", None, ["file"], False, context.copy(), Info(True, True), built_in=True), True)
+global_symbol_table.set("MATH_SQRT", Function("MATH_SQRT", None, ["num"], False, context.copy(), Info(True, True), built_in=True), True)
 
 def run(fn, text):
     lexer = Lexer(fn, text)
